@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>魔術方塊解法器 - 懶人自動播放版</title>
+    <script src="https://cdn.jsdelivr.net/gh/ldez/cubejs@master/lib/cube.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/ldez/cubejs@master/lib/solve.js"></script>
+    <style>
+        body { font-family: system-ui, sans-serif; background: #f0f2f5; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        .card { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 500px; text-align: center; }
+        .instruction { background: #fff3cd; border-left: 5px solid #ffc107; padding: 15px; margin-bottom: 20px; text-align: left; font-size: 0.85em; border-radius: 5px; color: #856404; }
+        .palette { display: flex; gap: 8px; justify-content: center; margin-bottom: 20px; }
+        .color-opt { width: 35px; height: 35px; cursor: pointer; border-radius: 6px; border: 3px solid transparent; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .color-opt.active { border-color: #000; transform: scale(1.1); }
+        .cube-grid { display: grid; grid-template-areas: ". U . ." "L F R B" ". D . ."; gap: 10px; margin: 20px 0; justify-content: center; }
+        .face { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; background: #333; padding: 2px; border-radius: 4px; }
+        .sticker { width: 30px; height: 30px; background: #eee; cursor: pointer; }
+        .center-sticker { cursor: not-allowed; font-size: 11px; color: rgba(0,0,0,0.5); line-height: 30px; font-weight: bold; }
+        .btn-group { display: flex; gap: 10px; margin-top: 10px; }
+        .btn { padding: 12px; border-radius: 8px; cursor: pointer; border: none; font-weight: bold; flex: 1; transition: 0.2s; }
+        .btn-solve { background: #2b8a3e; color: white; }
+        .btn-test { background: #1971c2; color: white; }
+        .btn-reset { background: #c92a2a; color: white; }
+        #guide-box { margin-top: 20px; display: none; border-top: 2px solid #eee; padding-top: 20px; background: #f8f9fa; border-radius: 10px; padding: 15px; }
+        .move-display { font-size: 80px; font-weight: 900; color: #1c7ed6; margin: 10px 0; height: 100px; line-height: 100px; }
+        .auto-panel { background: white; padding: 10px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #ddd; }
+        #U { grid-area: U; } #L { grid-area: L; } #F { grid-area: F; } #R { grid-area: R; } #B { grid-area: B; } #D { grid-area: D; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>🧩 魔術方塊解法導航</h2>
+    <div class="instruction">
+        <strong>懶人提示：</strong> 填色完按「計算」，接著開「自動播放」，你只要跟著轉就好。
+    </div>
+
+    <div class="palette">
+        <div class="color-opt active" style="background:#ffffff" data-color="U"></div>
+        <div class="color-opt" style="background:#ffd43b" data-color="D"></div>
+        <div class="color-opt" style="background:#fa5252" data-color="R"></div>
+        <div class="color-opt" style="background:#fd7e14" data-color="L"></div>
+        <div class="color-opt" style="background:#228be6" data-color="B"></div>
+        <div class="color-opt" style="background:#40c057" data-color="F"></div>
+    </div>
+
+    <div class="cube-grid">
+        <div class="face" id="U"></div><div class="face" id="L"></div>
+        <div class="face" id="F"></div><div class="face" id="R"></div>
+        <div class="face" id="B"></div><div class="face" id="D"></div>
+    </div>
+
+    <div class="btn-group">
+        <button id="solveBtn" class="btn btn-solve" onclick="startSolve()">🧠 計算解法</button>
+        <button class="btn btn-test" onclick="runTest()">隨機測試</button>
+        <button class="btn btn-reset" onclick="location.reload()">清空</button>
+    </div>
+
+    <div id="guide-box">
+        <div class="auto-panel">
+            <label>速度：</label>
+            <select id="play-speed">
+                <option value="1500">1.5 秒</option>
+                <option value="2500" selected>2.5 秒</option>
+                <option value="4000">4 秒</option>
+            </select>
+            <button id="autoBtn" onclick="toggleAuto()" style="padding: 5px 10px; cursor:pointer;">▶ 開始自動播放</button>
+        </div>
+        <div id="step-info" style="color:#666; font-size: 0.9em;"></div>
+        <div id="move-display" class="move-display">-</div>
+        <div id="move-desc" style="font-weight: bold; margin-bottom: 15px;"></div>
+        <div class="btn-group">
+            <button class="btn" style="background:#dee2e6" onclick="prevStep()">上一步</button>
+            <button class="btn" style="background:#dee2e6" onclick="nextStep()">下一步</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentColor = 'U';
+    let solutionMoves = [];
+    let currentStep = 0;
+    let autoTimer = null;
+    const colorMap = { 'U':'#ffffff', 'D':'#ffd43b', 'R':'#fa5252', 'L':'#fd7e14', 'B':'#228be6', 'F':'#40c057' };
+    const faceNames = { 'U':'白', 'D':'黃', 'R':'紅', 'L':'橘', 'B':'藍', 'F':'綠' };
+    const dict = { 'U':'頂層順時針',"U'":'頂層逆時針','U2':'頂層180度','D':'底層順時針',"D'":'底層逆時針','D2':'底層180度','L':'左側往下',"L'":'左側往上','L2':'左側180度','R':'右側往上',"R'":'右側往下','R2':'右側180度','F':'正面順時針',"F'":'正面逆時針','F2':'正面180度','B':'背面順時針',"B'":'背面逆時針','B2':'背面180度'};
+
+    // 初始化
+    ['U','L','F','R','B','D'].forEach(f => {
+        const el = document.getElementById(f);
+        for(let i=0; i<9; i++) {
+            const s = document.createElement('div');
+            s.className = 'sticker'; s.dataset.face = f;
+            if(i===4){ s.style.background=colorMap[f]; s.dataset.val=f; s.innerText=faceNames[f]; s.classList.add('center-sticker'); }
+            else { s.onclick=function(){ this.style.background=colorMap[currentColor]; this.dataset.val=currentColor; }; }
+            el.appendChild(s);
+        }
+    });
+
+    document.querySelectorAll('.color-opt').forEach(opt => {
+        opt.onclick = function() {
+            document.querySelector('.color-opt.active').classList.remove('active');
+            this.classList.add('active'); currentColor = this.dataset.color;
+        };
+    });
+
+    function runTest() {
+        if(typeof Cube === 'undefined') return alert("載入中...");
+        const state = Cube.random().asString();
+        let idx = 0;
+        ['U','R','F','D','L','B'].forEach(f => {
+            document.querySelectorAll(`.sticker[data-face="${f}"]`).forEach(s => {
+                const c = state[idx++]; s.style.background=colorMap[c]; s.dataset.val=c;
+            });
+        });
+    }
+
+    function startSolve() {
+        const counts = {U:0,D:0,R:0,L:0,B:0,F:0};
+        let s = "";
+        let ok = true;
+        ['U','R','F','D','L','B'].forEach(f => {
+            document.querySelectorAll(`.sticker[data-face="${f}"]`).forEach(stk => {
+                if(!stk.dataset.val) ok = false;
+                counts[stk.dataset.val]++;
+                s += stk.dataset.val;
+            });
+        });
+        if(!ok) return alert("還沒填完！");
+        for(let c in counts) if(counts[c]!==9) return alert(faceNames[c]+"色數量不對，請檢查！");
+
+        try {
+            Cube.initSolver();
+            solutionMoves = Cube.fromString(s).solve().split(" ").filter(m => m);
+            currentStep = 0;
+            document.getElementById('guide-box').style.display = 'block';
+            updateGuide();
+        } catch(e) { alert("顏色組合不合法！"); }
+    }
+
+    function updateGuide() {
+        const move = solutionMoves[currentStep];
+        document.getElementById('step-info').innerText = move ? `步驟 ${currentStep+1} / ${solutionMoves.length}` : "完成！";
+        document.getElementById('move-display').innerText = move || "🎉";
+        document.getElementById('move-desc').innerText = dict[move] || "復原成功";
+    }
+
+    function nextStep() { if(currentStep < solutionMoves.length-1) { currentStep++; updateGuide(); } else if(currentStep === solutionMoves.length-1) { currentStep++; updateGuide(); if(autoTimer) toggleAuto(); } }
+    function prevStep() { if(currentStep > 0) { currentStep--; updateGuide(); } }
+
+    function toggleAuto() {
+        const btn = document.getElementById('autoBtn');
+        if(autoTimer) { clearInterval(autoTimer); autoTimer=null; btn.innerText="▶ 開始自動播放"; }
+        else {
+            btn.innerText="⏸ 停止播放";
+            autoTimer = setInterval(nextStep, document.getElementById('play-speed').value);
+        }
+    }
+</script>
+</body>
+</html>
